@@ -1,0 +1,57 @@
+library(stringr)
+library(tm)
+library(SnowballC)
+library(pacman)
+library(plyr) 
+library(textstem)
+library(lexicon)
+library(rpart)
+library(RTextTools)
+library(e1071)
+
+labeltrain <- read.csv("~/Desktop/labeledTrainData.tsv",quote = '',sep = '\t',stringsAsFactors = FALSE)
+labeltrain$review <- tolower(labeltrain$review)
+labeltrain$review<-removeWords(labeltrain$review,stopwords("en"))
+labeltrain$review<-str_replace_all(labeltrain$review, "[^[:alnum:]]", " ")
+labeltrain$review <-lemmatize_strings(labeltrain$review,dictionary = hash_lemmas)
+dtMatrix <- create_matrix(labeltrain["review"])
+container <- create_container(dtMatrix, labeltrain$sentiment, trainSize=1:5000, virgin=FALSE)
+model <- train_model(container, "SVM", kernel="linear", cost=1)
+
+GuardianTest <- read.csv("~/Desktop/Alien: Covenant (2017)            .csv",encoding = "UTF-8",stringsAsFactors = FALSE)
+GuardianTest <- GuardianTest[!is.na(GuardianTest$review_rating),]
+row.names(GuardianTest) <- 1:nrow(GuardianTest)
+Encoding(GuardianTest$review)  <- "UTF-8"
+GuardianTest$review <- tolower(GuardianTest$review)
+GuardianTest$review<-removeWords(GuardianTest$review,stopwords("en"))
+GuardianTest$review<-str_replace_all(GuardianTest$review, "[^[:alnum:]]", " ")
+GuardianTest$review <-lemmatize_strings(GuardianTest$review,dictionary = hash_lemmas)
+predictionDataGuardian <- as.list(GuardianTest$review)
+predSizeGuardian <- length(predictionDataGuardian)
+predMatrix <- create_matrix(predictionDataGuardian, originalMatrix=dtMatrix)
+predictionContainer <- create_container(predMatrix, labels=rep(0,predSizeGuardian), testSize=1:predSizeGuardian, virgin=FALSE)
+results <- classify_model(predictionContainer, model)
+pos <- (sum(as.numeric(results$SVM_LABEL)==2))
+neg <- (sum(as.numeric(results$SVM_LABEL)==1))
+
+true_pos <- vector(mode="numeric", length=nrow(GuardianTest))
+false_pos <- vector(mode="numeric", length=nrow(GuardianTest))
+true_neg <- vector(mode="numeric", length=nrow(GuardianTest))
+false_neg <- vector(mode="numeric", length=nrow(GuardianTest))
+
+for (i in 1:nrow(GuardianTest)) {
+  true_pos[i] <- ifelse(results$SVM_LABEL[i]==1&&GuardianTest$review_rating[i]>=7, true_pos[i]<-1,true_pos[i]<-0)
+  false_pos[i] <- ifelse(results$SVM_LABEL[i]==0&&GuardianTest$review_rating[i]>=7, false_pos[i]<-1,false_pos[i]<-0)
+  true_neg[i] <- ifelse(results$SVM_LABEL[i]==0&&GuardianTest$review_rating[i]<7, true_neg[i]<-1,true_neg[i]<-0)
+  false_neg[i] <- ifelse(results$SVM_LABEL[i]==1&&GuardianTest$review_rating[i]<7, false_neg[i]<-1,false_neg[i]<-0)
+}
+accuracy <- (sum(true_neg) + sum(true_pos)) / (sum(true_pos) + sum(false_pos) + sum(true_neg) + sum(false_neg))
+recall <- sum(true_pos) / (sum(true_pos) + sum(false_neg))
+precision <- sum(true_pos) / (sum(true_pos) + sum(false_pos))
+
+wordcloud(GuardianTest$review, max.words = 100, random.order = FALSE)
+
+results$SVM_LABEL <- ifelse( results$SVM_LABEL == 1, results$SVM_LABEL <- "positive",results$SVM_LABEL <- "negative" )
+print(accuracy)
+print(precision)
+print(recall)
